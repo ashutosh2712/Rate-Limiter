@@ -37,6 +37,15 @@ class TokenBucket {
   }
 
   /**
+   * True if the bucket has fully refilled. A full bucket behaves exactly like
+   * a brand-new one, so stores can safely delete it to free memory.
+   */
+  isFull() {
+    this._refill();
+    return this.tokens >= this.capacity;
+  }
+
+  /**
    * Try to spend `cost` tokens.
    * @returns {{allowed: boolean, remaining: number, retryAfterMs: number}}
    */
