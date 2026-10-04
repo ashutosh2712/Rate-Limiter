@@ -47,7 +47,10 @@ class TokenBucket {
 
   /**
    * Try to spend `cost` tokens.
-   * @returns {{allowed: boolean, remaining: number, retryAfterMs: number}}
+   *
+   * @returns {{allowed: boolean, remaining: number, retryAfterMs: number, resetMs: number}}
+   *   retryAfterMs: how long until this request would be allowed (0 if allowed)
+   *   resetMs:      how long until the bucket is completely full again
    */
   consume(cost = 1) {
     if (!(cost > 0) || cost > this.capacity) {
@@ -62,6 +65,7 @@ class TokenBucket {
         allowed: true,
         remaining: Math.floor(this.tokens),
         retryAfterMs: 0,
+        resetMs: this._msUntilFull(),
       };
     }
 
@@ -70,7 +74,13 @@ class TokenBucket {
       allowed: false,
       remaining: Math.floor(this.tokens),
       retryAfterMs: Math.ceil((missing / this.refillPerSec) * 1000),
+      resetMs: this._msUntilFull(),
     };
+  }
+  _msUntilFull() {
+    return Math.ceil(
+      ((this.capacity - this.tokens) / this.refillPerSec) * 1000,
+    );
   }
 }
 
