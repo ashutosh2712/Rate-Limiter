@@ -71,8 +71,8 @@ test("cleanup removes idle (fully refilled) buckets only", async () => {
   const removed = store.cleanup();
   assert.equal(removed, 1);
   assert.equal(store.size, 1);
-  assert.equal(store.buckets.has("busy"), true);
-  assert.equal(store.buckets.has("idle"), false);
+  assert.equal(store.buckets.has("default:busy"), true);
+  assert.equal(store.buckets.has("default:idle"), false);
 });
 
 test("behavior is identical after a bucket is cleaned up and recreated", async () => {

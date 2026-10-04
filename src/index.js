@@ -5,4 +5,6 @@ module.exports = {
   ...require("./memory-store"),
   ...require("./rate-limiter"),
   ...require("./middleware"),
+  ...require("./tiers"),
+  ...require("./rate"),
 };
