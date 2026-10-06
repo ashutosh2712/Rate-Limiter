@@ -3,13 +3,20 @@
 // Run: npm install --save-dev express && node example/server.js
 const express = require("express");
 const { RateLimiter, MemoryStore, rateLimit, rate, byTier } = require("../src");
+const { RedisStore } = require("../src/redis-store");
 
 const app = express();
 // Behind a proxy/load balancer? Trust the right number of hops so req.ip is the real client.
 // app.set('trust proxy', 1);
 
 // ONE store shared by every limiter. Each limiter's `name` keeps its keys apart.
-const store = new MemoryStore();
+//const store = new MemoryStore();
+const store = new RedisStore({
+  client: new Redis(url, {
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+  }),
+});
 
 // Fake auth for the demo. In real code req.user comes from your auth layer.
 app.use((req, res, next) => {
