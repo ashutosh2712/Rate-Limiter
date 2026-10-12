@@ -2,21 +2,36 @@
 
 // Run: npm install --save-dev express && node example/server.js
 const express = require("express");
-const { RateLimiter, MemoryStore, rateLimit, rate, byTier } = require("../src");
-const { RedisStore } = require("../src/redis-store");
+const {
+  RateLimiter,
+  MemoryStore,
+  RedisStore,
+  rateLimit,
+  rate,
+  byTier,
+  createMetrics,
+} = require("../src");
 
 const app = express();
 // Behind a proxy/load balancer? Trust the right number of hops so req.ip is the real client.
 // app.set('trust proxy', 1);
 
 // ONE store shared by every limiter. Each limiter's `name` keeps its keys apart.
-//const store = new MemoryStore();
-const store = new RedisStore({
-  client: new Redis(url, {
-    enableOfflineQueue: false,
+// REDIS_URL=redis://127.0.0.1:6379 node example/server.js  -> shared across all instances
+// (no REDIS_URL)                                           -> in-memory, this process only
+let store;
+if (process.env.REDIS_URL) {
+  const Redis = require("ioredis");
+  const client = new Redis(process.env.REDIS_URL, {
+    enableOfflineQueue: false, // fail fast (and fail open) when Redis is down
     maxRetriesPerRequest: 1,
-  }),
-});
+    connectTimeout: 500,
+  });
+  client.on("error", (err) => console.error("redis error:", err.message));
+  store = new RedisStore({ client, keyPrefix: "myapp:rl:", closeClient: true });
+} else {
+  store = new MemoryStore();
+}
 
 // Fake auth for the demo. In real code req.user comes from your auth layer.
 app.use((req, res, next) => {
@@ -27,6 +42,8 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+const metrics = createMetrics(); // counts allowed / blocked / error / skipped + check latency
 
 const ipKey = (req) => req.ip;
 const userKey = (req) => (req.user ? req.user.id : null); // null => rule skipped for anonymous
@@ -51,7 +68,8 @@ const perIp = new RateLimiter({
 
 app.use(
   rateLimit({
-    skip: (req) => req.path === "/health",
+    skip: (req) => req.path === "/health" || req.path === "/metrics",
+    onDecision: metrics.record,
     onError: (err) => console.error("rate limiter error:", err),
     rules: [
       { limiter: perPlan, keyGenerator: userKey },
@@ -73,6 +91,9 @@ const loginLimit = rateLimit({
 });
 
 app.get("/health", (req, res) => res.send("ok"));
+app.get("/metrics", (req, res) =>
+  res.type("text/plain").send(metrics.toPrometheus()),
+);
 app.get("/", (req, res) =>
   res.json({ hello: "world", user: req.user ?? null }),
 );

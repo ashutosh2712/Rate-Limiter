@@ -8,4 +8,5 @@ module.exports = {
   ...require("./middleware"),
   ...require("./tiers"),
   ...require("./rate"),
+  ...require("./metrics"),
 };

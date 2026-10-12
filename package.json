@@ -6,12 +6,18 @@
   "scripts": {
     "test": "node --test",
     "test:watch": "node --test --watch",
-    "coverage": "node --test --experimental-test-coverage"
+    "coverage": "node --test --experimental-test-coverage",
+    "load:correctness": "node loadtest/correctness.js",
+    "load:correctness:redis": "STORE=redis PROCS=3 CAPACITY=100 REQUESTS=3000 CONCURRENCY=100 node loadtest/correctness.js",
+    "load:store": "node loadtest/store-bench.js",
+    "load:store:redis": "STORE=redis node loadtest/store-bench.js",
+    "load:server": "node loadtest/server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "autocannon": "^8.0.0",
     "express": "^5.2.1",
     "ioredis": "^6.0.0"
   }

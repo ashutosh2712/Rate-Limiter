@@ -18,6 +18,20 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+/**
+ * Call the observer hook. A broken metrics hook must NEVER break or slow a
+ * request, so errors (sync or async) are swallowed.
+ */
+function notify(onDecision, event) {
+  if (!onDecision) return;
+  try {
+    const r = onDecision(event);
+    if (r && typeof r.catch === "function") r.catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}
+
 function isLimiterLike(l) {
   return typeof l === "function" || (l && typeof l.check === "function");
 }
@@ -71,6 +85,11 @@ function compileRules({ limiter, rules, keyGenerator, cost }) {
  * @param {(req) => boolean} [opts.skip]                         Return true to bypass (health checks...). Must be sync
  * @param {boolean} [opts.failOpen=true]                         If a limiter errors: allow (true) or 503 (false)
  * @param {(err: Error) => void} [opts.onError]                  Called when a limiter throws (log it!)
+ * @param {(event: DecisionEvent) => void} [opts.onDecision]     Observer for metrics/logging, called once per request:
+ *     { outcome: 'allowed'|'blocked'|'error'|'skipped', durationMs, req,
+ *       limit, remaining, retryAfterMs   (allowed/blocked),
+ *       error, failedOpen                (error) }
+ *     Exceptions thrown by the hook are swallowed.
  * @param {(req, res, next, result) => void} [opts.onLimited]    Custom 429 response
  * @param {boolean} [opts.headers=true]                          Send X-RateLimit-* headers
  * @param {() => number} [opts.now]                              Clock (ms), used for the Reset header
@@ -83,6 +102,7 @@ function rateLimit({
   skip,
   failOpen = true,
   onError,
+  onDecision,
   onLimited,
   headers = true,
   now = Date.now,
@@ -90,10 +110,14 @@ function rateLimit({
   const compiled = compileRules({ limiter, rules, keyGenerator, cost });
 
   return async function rateLimitMiddleware(req, res, next) {
-    if (skip && skip(req)) return next();
+    if (skip && skip(req)) {
+      notify(onDecision, { outcome: "skipped", durationMs: 0, req });
+      return next();
+    }
 
     // Only the limiter work is inside try/catch. Errors thrown later by
     // next() must NOT be mistaken for limiter failures.
+    const startedAt = performance.now();
     let outcome = null; // the result we report: the denial, else the tightest allowance
     try {
       for (const rule of compiled) {
@@ -113,11 +137,32 @@ function rateLimit({
       }
     } catch (err) {
       if (onError) onError(err);
+      notify(onDecision, {
+        outcome: "error",
+        failedOpen: failOpen,
+        error: err,
+        durationMs: performance.now() - startedAt,
+        req,
+      });
       if (failOpen) return next();
       return sendJson(res, 503, { error: "Service Unavailable" });
     }
 
-    if (!outcome) return next(); // every rule was skipped
+    const durationMs = performance.now() - startedAt;
+
+    if (!outcome) {
+      notify(onDecision, { outcome: "skipped", durationMs, req }); // every rule was skipped
+      return next();
+    }
+
+    notify(onDecision, {
+      outcome: outcome.allowed ? "allowed" : "blocked",
+      limit: outcome.limit,
+      remaining: outcome.remaining,
+      retryAfterMs: outcome.retryAfterMs,
+      durationMs,
+      req,
+    });
 
     if (headers) {
       res.setHeader("X-RateLimit-Limit", String(outcome.limit));
